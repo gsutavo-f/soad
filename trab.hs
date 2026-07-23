@@ -2,6 +2,8 @@
 -- Definição das árvore sintática para representação dos programas:
 
 -- Expressões aritméticas:
+{- HLINT ignore "Redundant ==" -}
+{- HLINT ignore "Redundant bracket" -}
 data E = Num Int
       |Var String
       |Soma E E
@@ -32,7 +34,7 @@ data C = While B C
     | DuplaATrib E E E E -- recebe 2 variáveis e 2 expressões (DuplaATrib (Var v1) (Var v2) e1 e2) e faz v1:=e1 e v2:=e2
     | AtribCond B E E E --- AtribCond b (Var v1) e1 e2: se b for verdade, então faz v1:e1, se B for falso faz v1:=e2
     | Swap E E -- swap(x,y): troca o conteúdo das variáveis x e y 
-   deriving(Eq,Show)                
+   deriving(Eq,Show)
 
 
 -----------------------------------------------------
@@ -80,7 +82,7 @@ procuraVar ((s,i):xs) v
 mudaVar :: Memoria -> String -> Int -> Memoria
 mudaVar [] v n = error ("Variavel " ++ v ++ " nao definida no estado")
 mudaVar ((s,i):xs) v n
-  | s == v     = ((s,n):xs)
+  | s == v     = (s,n):xs
   | otherwise  = (s,i): mudaVar xs v n
 
 
@@ -104,15 +106,15 @@ bbigStep :: (B,Memoria) -> Bool
 bbigStep (TRUE,s)  = True
 bbigStep (FALSE,s) = False
 
-bbigStep (Not b,s) 
+bbigStep (Not b,s)
    | bbigStep (b,s) == True     = False
-   | otherwise                  = True 
+   | otherwise                  = True
 
-bbigStep (And b1 b2,s ) 
+bbigStep (And b1 b2,s )
    | bbigStep (b1, s) == True = bbigStep (b2, s)
    | bbigStep (b1, s) == False = False
 
-bbigStep (Or b1 b2,s ) 
+bbigStep (Or b1 b2,s )
    | bbigStep (b1, s) == True = True
    | bbigStep (b1, s) == False = bbigStep (b2, s)
 
@@ -125,9 +127,9 @@ cbigStep :: (C,Memoria) -> (C,Memoria)
 cbigStep (Skip,s) = (Skip,s)
 
 -- If   --- avaliar B, desviar para c1 ou c2
-cbigStep (If b c1 c2,s) 
-   | bbigStep(b, s) == True = cbigStep(c1, s)
-   | otherwise              = cbigStep(c2, s)
+cbigStep (If b c1 c2,s)
+   | bbigStep (b, s) == True = cbigStep (c1, s)
+   | otherwise              = cbigStep (c2, s)
 
 -- Seq C1 C2 --- roda c1, captura o estado resultante s', roda c2 a partir de s'
 cbigStep (Seq c1 c2,s) =
@@ -139,25 +141,28 @@ cbigStep (Atrib (Var x) e,s) = (Skip, mudaVar s x (ebigStep (e, s)))
 
 -- While    ---- se b é true, executa Seq(c, while); se false, skip
 cbigStep(While b c, s)
-   | bbigStep(b, s) == True = cbigStep(Seq c (While b c), s)
+   | bbigStep (b, s) == True = cbigStep (Seq c (While b c), s)
    | otherwise              = (Skip, s)
 
 -- TenTimes C   ---- Executa o comando C 10 vezes
-cbigStep(TenTimes c, s) = cbigStep (foldr Seq Skip (replicate 10 c), s)
- 
--- Repeat C B --- Repeat C until B: executa C enquanto B é falso
-cbigStep(Repeat c b, s) = cbigStep(Seq c (While (Not b) c), s)
+cbigStep (TenTimes c, s) =
+   cbigStep (Seq c (Seq c (Seq c (Seq c (Seq c (Seq c (Seq c (Seq c (Seq c c)))))))), s)
 
--- Loop E E C      ---- Loop e1 e2 c: executa (e2 - e1) vezes o comando C 
-cbigStep(Loop e1 e2 c, s) = 
-    let k = ebigStep(Sub e1 e2, s)
-    in cbigStep (foldr Seq Skip (replicate k c), s)
+-- Repeat C B --- Repeat C until B: executa C enquanto B é falso
+cbigStep(Repeat c b, s) = cbigStep (Seq c (While (Not b) c), s)
+
+-- Loop E E C      ---- Loop e1 e2 c: executa (e2 - e1) vezes o comando C
+cbigStep (Loop e1 e2 c, s)
+   | bbigStep (Leq e2 e1, s) = (Skip, s)          -- (e2 - e1) <= 0: para
+   | otherwise =
+       let (_, s') = cbigStep (c, s)
+       in cbigStep (Loop (Soma e1 (Num 1)) e2 c, s')
 
 -- DuplaATrib E E E E -- recebe 2 variáveis e 2 expressões (DuplaATrib (Var v1) (Var v2) e1 e2) e faz v1:=e1 e v2:=e2
-cbigStep (DuplaATrib v1 v2 e1 e2, s) = cbigStep (Seq (Atrib v1 e1) Atrib(v2 e2), s)
+cbigStep (DuplaATrib v1 v2 e1 e2, s) = cbigStep (Seq (Atrib v1 e1) (Atrib v2 e2), s)
 
 --AtribCond B E E E --- AtribCond b (Var v1) e1 e2: se b for verdade, então faz v1:e1, se B for falso faz v1:=e2
-cbigStep (AtribCond b v1 e1 e2, s) = cbigStep(If b (Atrib v1 e1) (Atrib v1 e2), s)
+cbigStep (AtribCond b v1 e1 e2, s) = cbigStep (If b (Atrib v1 e1) (Atrib v1 e2), s)
 
 -- Swap E E -- swap(x,y): troca o conteúdo das variáveis x e y 
 cbigStep (Swap (Var x) (Var y), s) =
@@ -214,7 +219,7 @@ teste2 = (Leq (Soma (Var "x") (Num 3))  (Mult (Num 2) (Num 3)))
 -- Exemplos de Programas Imperativos:
 
 testec1 :: C
-testec1 = (Seq (Seq (Atrib (Var "z") (Var "x")) (Atrib (Var "x") (Var "y"))) 
+testec1 = (Seq (Seq (Atrib (Var "z") (Var "x")) (Atrib (Var "x") (Var "y")))
                (Atrib (Var "y") (Var "z")))
 
 fatorial :: C
